@@ -462,25 +462,32 @@ struct SavedView: View {
                     emptyState
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: spacing) {
-                            Text("Saved")
-                                .font(.system(size: 44, weight: .bold))
-                                .padding(.top, 8)
+                        GeometryReader { proxy in
+                            let availableWidth = proxy.size.width - spacing
+                            let tileSize = max(140, availableWidth / 2)
 
-                            LazyVGrid(columns: columns, spacing: spacing) {
-                                ForEach(vm.savedImages, id: \.id) { img in
-                                    SavedTile(url: img.url)
-                                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                                        .onTapGesture {
-                                            viewerImages = vm.savedImages
-                                            viewerStartIndex = vm.savedImages.firstIndex(where: { $0.id == img.id }) ?? 0
-                                            showViewer = true
-                                        }
+                            VStack(alignment: .leading, spacing: spacing) {
+                                Text("Saved")
+                                    .font(.system(size: 44, weight: .bold))
+                                    .padding(.top, 8)
+
+                                LazyVGrid(columns: columns, spacing: spacing) {
+                                    ForEach(vm.savedImages, id: \.id) { img in
+                                        SavedTile(url: img.url, size: tileSize)
+                                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                            .onTapGesture {
+                                                viewerImages = vm.savedImages
+                                                viewerStartIndex = vm.savedImages.firstIndex(where: { $0.id == img.id }) ?? 0
+                                                showViewer = true
+                                            }
+                                    }
                                 }
+                                .padding(.bottom, 80)
                             }
-                            .padding(.bottom, 80)
+                            .padding(.horizontal, 16)
+                            .frame(width: proxy.size.width, alignment: .topLeading)
                         }
-                        .padding(.horizontal, 16)
+                        .frame(minHeight: 0)
                     }
                 }
             }
@@ -513,6 +520,7 @@ struct SavedView: View {
 
 private struct SavedTile: View {
     let url: URL?
+    let size: CGFloat
 
     var body: some View {
         ZStack {
@@ -537,8 +545,7 @@ private struct SavedTile: View {
                 }
             }
         }
-        .aspectRatio(1, contentMode: .fit) // ✅ hard locks layout (no stagger)
-        .frame(maxWidth: .infinity)
+        .frame(width: size, height: size)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
