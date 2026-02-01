@@ -450,7 +450,8 @@ struct SavedView: View {
     private let spacing: CGFloat = 14
     private var columns: [GridItem] {
         [
-            GridItem(.adaptive(minimum: 160), spacing: spacing)
+            GridItem(.flexible(minimum: 160), spacing: spacing),
+            GridItem(.flexible(minimum: 160), spacing: spacing)
         ]
     }
 
@@ -585,10 +586,14 @@ struct CatViewer: View {
     @ObservedObject var favorites: FavoritesStore
 
     @State private var index: Int
-    @State private var showShare = false
+    @State private var sharePayload: SharePayload?
+    @State private var isPreparingShare = false
     @State private var isFlipped = false
+    @State private var detailOverrides: [String: CatImage] = [:]
+    @State private var loadingDetails: Set<String> = []
 
     @Environment(\.dismiss) private var dismiss
+    private let api = CatAPIClient()
 
     init(images: [CatImage], startIndex: Int, accent: Color, favorites: FavoritesStore) {
         self.images = images
@@ -600,7 +605,8 @@ struct CatViewer: View {
 
     private var current: CatImage? {
         guard !images.isEmpty else { return nil }
-        return images[max(0, min(index, images.count - 1))]
+        let image = images[max(0, min(index, images.count - 1))]
+        return detailOverrides[image.id] ?? image
     }
 
     var body: some View {
@@ -610,7 +616,7 @@ struct CatViewer: View {
             TabView(selection: $index) {
                 ForEach(images.indices, id: \.self) { i in
                     FlippableCatCard(
-                        image: images[i],
+                        image: detailOverrides[images[i].id] ?? images[i],
                         isFlipped: Binding(
                             get: { isFlipped && i == index },
                             set: { newValue in
@@ -628,9 +634,9 @@ struct CatViewer: View {
                     GlassIconButton(systemName: "xmark", accent: accent) { dismiss() }
                     Spacer()
                     GlassIconButton(systemName: "square.and.arrow.up", accent: accent) {
-                        if current != nil { showShare = true }
+                        Task { await prepareShare() }
                     }
-                    .disabled(current == nil)
+                    .disabled(current == nil || isPreparingShare)
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
@@ -682,13 +688,55 @@ struct CatViewer: View {
                 .padding(.bottom, 18)
             }
         }
-        .sheet(isPresented: $showShare) {
-            if let url = current?.url {
-                ShareSheet(activityItems: [url])
-                    #if canImport(UIKit)
-                    .presentationDetents([.medium])
-                    #endif
+        .task {
+            if let current {
+                await loadDetailsIfNeeded(for: current)
             }
+        }
+        .onChange(of: index) { _ in
+            if let current {
+                Task { await loadDetailsIfNeeded(for: current) }
+            }
+        }
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(activityItems: payload.items)
+                #if canImport(UIKit)
+                .presentationDetents([.medium])
+                #endif
+        }
+    }
+
+    private func needsDetails(_ image: CatImage) -> Bool {
+        guard let breed = image.breeds?.first else { return true }
+        return breed.name.isEmpty ||
+            (breed.origin?.isEmpty ?? true) ||
+            (breed.temperament?.isEmpty ?? true) ||
+            (breed.description?.isEmpty ?? true)
+    }
+
+    private func loadDetailsIfNeeded(for image: CatImage) async {
+        guard needsDetails(image) else { return }
+        let shouldLoad = await MainActor.run { !loadingDetails.contains(image.id) }
+        guard shouldLoad else { return }
+        await MainActor.run { loadingDetails.insert(image.id) }
+        defer { Task { @MainActor in loadingDetails.remove(image.id) } }
+        do {
+            if let enriched = try await api.fetchImageById(image.id) {
+                await MainActor.run { detailOverrides[image.id] = enriched }
+            }
+        } catch {
+            print("Detail load error:", error)
+        }
+    }
+
+    @MainActor
+    private func prepareShare() async {
+        guard let image = current, let url = image.url else { return }
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+        defer { isPreparingShare = false }
+        if let platformImage = await CatImageCache.shared.imageForShare(url: url) {
+            sharePayload = SharePayload(items: [platformImage])
         }
     }
 }
@@ -861,31 +909,39 @@ struct CatInfoBackCard: View {
                 Text(image.breedName ?? "Cat did not feel comfortable with sharing breed info.")
                     .font(.system(size: 28, weight: .bold))
 
-                if let origin = image.origin, !origin.isEmpty {
-                    Text("Origin: \(origin)")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                }
+                Group {
+                    if let origin = image.origin, !origin.isEmpty {
+                        Text("Origin: \(origin)")
+                    }
 
-                if let temperament = image.temperament, !temperament.isEmpty {
-                    Text(temperament)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 2)
+                    if let temperament = image.temperament, !temperament.isEmpty {
+                        Text(temperament)
+                            .padding(.top, 2)
+                    }
                 }
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
 
                 Divider().opacity(0.2)
 
-                Text(image.description ?? "Description was pushed off the table.")
-                    .font(.system(size: 17))
-                    .foregroundStyle(.primary)
-                    .lineSpacing(3)
-                    .padding(.top, 6)
+                if let description = image.description, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .lineSpacing(3)
+                        .padding(.top, 6)
+                } else {
+                    Text("Description was pushed off the table.")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                        .lineSpacing(3)
+                        .padding(.top, 6)
 
-                Text("Don't worry if nothing appears here yet! Our doughmakers are still baking this section :3")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 14)
+                    Text("Don't worry if nothing appears here yet! Our doughmakers are still baking this section :3")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 14)
+                }
 
                 Spacer(minLength: 60)
             }
@@ -1131,6 +1187,11 @@ struct ShareSheet: NSViewRepresentable {
 }
 #endif
 
+struct SharePayload: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
 // MARK: - Cached Image System (cross-platform, off-main)
 
 enum CachedImagePhase {
@@ -1172,6 +1233,24 @@ final class CatImageCache {
         if let data = Self.encodeJPEG(image: image, quality: 0.9) {
             try? data.write(to: f, options: [.atomic])
         }
+    }
+
+    func imageForShare(url: URL) async -> PlatformImage? {
+        if let cached = image(for: url) {
+            return cached
+        }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            if let image = Self.decode(data: data) {
+                store(image, for: url)
+                return image
+            }
+        } catch {
+            print("Share image error:", error)
+        }
+
+        return nil
     }
 
     private func fileURL(for url: URL) -> URL {
