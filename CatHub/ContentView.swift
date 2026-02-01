@@ -473,7 +473,6 @@ struct SavedView: View {
                             LazyVGrid(columns: columns, spacing: spacing) {
                                 ForEach(vm.savedImages, id: \.id) { img in
                                     SavedTile(url: img.url)
-                                        .aspectRatio(1, contentMode: .fit)
                                         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                                         .onTapGesture {
                                             viewerImages = vm.savedImages
@@ -519,35 +518,45 @@ private struct SavedTile: View {
     let url: URL?
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
+        GeometryReader { geo in
+            let side = geo.size.width
 
-            CachedRemoteImage(url: url, targetPixelSize: CGSize(width: 900, height: 900)) { phase in
-                switch phase {
-                case .empty:
-                    ProgressView()
-                case .failure:
-                    Image(systemName: "photo")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .clipped()
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.ultraThinMaterial)
+
+                CachedRemoteImage(
+                    url: url,
+                    targetPixelSize: CGSize(width: 900, height: 900)
+                ) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                            .frame(width: side, height: side)
+
+                    case .failure:
+                        Image(systemName: "photo")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: side, height: side)
+
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: side, height: side)
+                            .clipped()
+                    }
                 }
             }
+            .frame(width: side, height: side) // ✅ hard square
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
         }
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
-        )
-        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit) // ✅ makes GeometryReader behave in grids
     }
 }
 
@@ -568,11 +577,16 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("About") {
-                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nThis version of the beta fixes issues like Zoom Function, Performance deficits, and some minor UI tweaks. Enjoy!")
+                Section("About CatHub") {
+                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nThis version of the beta fixes issues like Image Tiles, Info card function, and the need to refresh images. Enjoy!")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
+                }
+
+                Section("Version") {
+                    Text("1.0.3B")
+                        .font(.system(size: 15, weight: .semibold))
                 }
             }
             .navigationTitle("Settings")
