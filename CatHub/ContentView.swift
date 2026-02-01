@@ -453,7 +453,8 @@ struct SavedView: View {
     private let spacing: CGFloat = 14
     private var columns: [GridItem] {
         [
-            GridItem(.adaptive(minimum: 150), spacing: spacing)
+            GridItem(.flexible(), spacing: spacing),
+            GridItem(.flexible(), spacing: spacing)
         ]
     }
 
