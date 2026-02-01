@@ -553,15 +553,18 @@ private struct SavedTile: View {
                     Image(systemName: "photo")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .success(let image):
                     image
                         .resizable()
                         .scaledToFill()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
                 }
             }
         }
         .aspectRatio(1, contentMode: .fit) // ✅ hard locks layout (no stagger)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -982,8 +985,11 @@ final class CatAPIClient {
     }
 
     func fetchImageById(_ id: String) async throws -> CatImage? {
-        let url = base.appendingPathComponent("images/\(id)")
-        var req = URLRequest(url: url)
+        var comps = URLComponents(url: base.appendingPathComponent("images/\(id)"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [
+            URLQueryItem(name: "include_breeds", value: "1")
+        ]
+        var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 25
         let (data, _) = try await session.data(for: req)
         return try JSONDecoder().decode(CatImage.self, from: data)
