@@ -289,7 +289,10 @@ struct BrowseView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .task { await vm.loadOnce() }
+            .task {
+                await vm.loadOnce()
+                await vm.performLaunchWarmup()
+            }
             .fullScreenCover(isPresented: $showViewer) {
                 CatViewer(images: viewerImages, startIndex: viewerStartIndex, accent: accent, favorites: favorites)
             }
@@ -450,8 +453,7 @@ struct SavedView: View {
     private let spacing: CGFloat = 14
     private var columns: [GridItem] {
         [
-            GridItem(.flexible(minimum: 160), spacing: spacing),
-            GridItem(.flexible(minimum: 160), spacing: spacing)
+            GridItem(.adaptive(minimum: 150), spacing: spacing)
         ]
     }
 
@@ -462,32 +464,26 @@ struct SavedView: View {
                     emptyState
                 } else {
                     ScrollView {
-                        GeometryReader { proxy in
-                            let availableWidth = proxy.size.width - spacing
-                            let tileSize = max(140, availableWidth / 2)
+                        VStack(alignment: .leading, spacing: spacing) {
+                            Text("Saved")
+                                .font(.system(size: 44, weight: .bold))
+                                .padding(.top, 8)
 
-                            VStack(alignment: .leading, spacing: spacing) {
-                                Text("Saved")
-                                    .font(.system(size: 44, weight: .bold))
-                                    .padding(.top, 8)
-
-                                LazyVGrid(columns: columns, spacing: spacing) {
-                                    ForEach(vm.savedImages, id: \.id) { img in
-                                        SavedTile(url: img.url, size: tileSize)
-                                            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                                            .onTapGesture {
-                                                viewerImages = vm.savedImages
-                                                viewerStartIndex = vm.savedImages.firstIndex(where: { $0.id == img.id }) ?? 0
-                                                showViewer = true
-                                            }
-                                    }
+                            LazyVGrid(columns: columns, spacing: spacing) {
+                                ForEach(vm.savedImages, id: \.id) { img in
+                                    SavedTile(url: img.url)
+                                        .aspectRatio(1, contentMode: .fit)
+                                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                        .onTapGesture {
+                                            viewerImages = vm.savedImages
+                                            viewerStartIndex = vm.savedImages.firstIndex(where: { $0.id == img.id }) ?? 0
+                                            showViewer = true
+                                        }
                                 }
-                                .padding(.bottom, 80)
                             }
-                            .padding(.horizontal, 16)
-                            .frame(width: proxy.size.width, alignment: .topLeading)
+                            .padding(.bottom, 80)
                         }
-                        .frame(minHeight: 0)
+                        .padding(.horizontal, 16)
                     }
                 }
             }
@@ -520,7 +516,6 @@ struct SavedView: View {
 
 private struct SavedTile: View {
     let url: URL?
-    let size: CGFloat
 
     var body: some View {
         ZStack {
@@ -545,13 +540,13 @@ private struct SavedTile: View {
                 }
             }
         }
-        .frame(width: size, height: size)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(.white.opacity(0.08), lineWidth: 1)
         )
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -754,15 +749,15 @@ struct FlippableCatCard: View {
 
     var body: some View {
         ZStack {
-            if isFlipped {
-                CatInfoBackCard(image: image)
-                    .transition(.opacity)
-            } else {
-                CatZoomFrontCard(image: image)
-                    .transition(.opacity)
-            }
+            CatZoomFrontCard(image: image)
+                .opacity(isFlipped ? 0 : 1)
+                .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0))
+
+            CatInfoBackCard(image: image)
+                .opacity(isFlipped ? 1 : 0)
+                .rotation3DEffect(.degrees(isFlipped ? 0 : -180), axis: (x: 0, y: 1, z: 0))
         }
-        .animation(.easeInOut(duration: 0.18), value: isFlipped)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isFlipped)
     }
 }
 
@@ -1064,6 +1059,7 @@ final class BrowseViewModel: ObservableObject {
     private var didLoad = false
     private var loadedBreedIds: Set<String> = []
     private var isLoadingMore: Set<String> = []
+    private var didPerformLaunchWarmup = false
 
     func loadOnce() async {
         guard !didLoad else { return }
@@ -1072,6 +1068,29 @@ final class BrowseViewModel: ObservableObject {
             breeds = try await api.fetchBreeds()
         } catch {
             print("Browse load error:", error)
+        }
+    }
+
+    func performLaunchWarmup() async {
+        guard !didPerformLaunchWarmup else { return }
+        didPerformLaunchWarmup = true
+        guard !breeds.isEmpty else { return }
+
+        let initialBreeds = Array(breeds.prefix(6))
+        for breed in initialBreeds {
+            await ensureInitialImages(for: breed)
+        }
+
+        let delays: [UInt64] = [500_000_000, 1_000_000_000]
+        for delay in delays {
+            try? await Task.sleep(nanoseconds: delay)
+            for breed in initialBreeds {
+                if (imagesByBreed[breed.id]?.isEmpty ?? true) {
+                    await loadMoreImages(for: breed, batchSize: 8)
+                } else {
+                    await refreshImages(for: breed)
+                }
+            }
         }
     }
 
