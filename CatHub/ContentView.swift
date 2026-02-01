@@ -245,9 +245,6 @@ struct BrowseView: View {
                                         viewerStartIndex = idx
                                         showViewer = true
                                     },
-                                    onRefresh: {
-                                        Task { await vm.refreshImages(for: breed) }
-                                    },
                                     onNeedMore: {
                                         Task { await vm.loadMoreImages(for: breed) }
                                     },
@@ -347,7 +344,6 @@ struct BreedSectionCard: View {
     let images: [CatImage]
     let isLoading: Bool
     let onSelect: (_ images: [CatImage], _ startIndex: Int) -> Void
-    let onRefresh: () -> Void
     let onNeedMore: () -> Void
     let onFirstAppear: () -> Void
 
@@ -365,15 +361,6 @@ struct BreedSectionCard: View {
                 }
 
                 Spacer()
-
-                Button(action: onRefresh) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .tint(.clear)
-                .accessibilityLabel("Refresh photos for \(breed.name)")
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -463,8 +450,7 @@ struct SavedView: View {
     private let spacing: CGFloat = 14
     private var columns: [GridItem] {
         [
-            GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: spacing),
-            GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: spacing)
+            GridItem(.adaptive(minimum: 160), spacing: spacing)
         ]
     }
 
@@ -499,19 +485,6 @@ struct SavedView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await vm.loadSaved(from: favorites.ids) }
-                        softHaptic()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundStyle(accent)
-                    }
-                    .buttonStyle(.plain)
-                    .tint(.clear)
-                }
-            }
             // ✅ runs on appear and whenever favorites.ids changes
             .task(id: favorites.ids) {
                 await vm.loadSaved(from: favorites.ids)
@@ -564,6 +537,7 @@ private struct SavedTile: View {
             }
         }
         .aspectRatio(1, contentMode: .fit) // ✅ hard locks layout (no stagger)
+        .frame(maxWidth: .infinity)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
@@ -976,7 +950,8 @@ final class CatAPIClient {
         comps.queryItems = [
             URLQueryItem(name: "breed_ids", value: breedId),
             URLQueryItem(name: "limit", value: "\(limit)"),
-            URLQueryItem(name: "size", value: "small")
+            URLQueryItem(name: "size", value: "small"),
+            URLQueryItem(name: "include_breeds", value: "1")
         ]
         var req = URLRequest(url: comps.url!)
         req.timeoutInterval = 25
