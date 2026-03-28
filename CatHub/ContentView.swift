@@ -3,7 +3,6 @@
 //  CatHub
 //
 //  Created by Zero on 2026-01-29.
-//  Updated by ChatGPT on 2026-02-03.
 //
 
 import SwiftUI
@@ -34,11 +33,9 @@ typealias PlatformImage = UIImage
 typealias PlatformImage = NSImage
 #endif
 
-// MARK: - App Secrets (Integrated Keys)
+// MARK: - App Secrets
 
 enum AppSecrets {
-    /// Put this in Info.plist:
-    /// THE_CAT_API_KEY : String = "..."
     static var theCatAPIKey: String {
         let raw = (Bundle.main.object(forInfoDictionaryKey: "THE_CAT_API_KEY") as? String) ?? ""
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -48,8 +45,7 @@ enum AppSecrets {
 // MARK: - App State
 
 enum CatHubTab: String, CaseIterable, Identifiable {
-    case browse
-    case more
+    case randomizer
     case saved
     case settings
 
@@ -57,8 +53,7 @@ enum CatHubTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .browse: return "Browse"
-        case .more: return "More Cats (New!)"
+        case .randomizer: return "Randomizer"
         case .saved: return "Saved"
         case .settings: return "Settings"
         }
@@ -66,8 +61,7 @@ enum CatHubTab: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .browse: return "pawprint.fill"
-        case .more: return "cat.fill"
+        case .randomizer: return "cat.fill"
         case .saved: return "heart.fill"
         case .settings: return "gearshape.fill"
         }
@@ -97,89 +91,62 @@ enum CatHubTintChoice: String, CaseIterable, Identifiable {
         switch self {
         case .purple: return .purple
         case .lavender: return Color(red: 0.74, green: 0.63, blue: 0.98)
-
         case .blue: return .blue
         case .indigo: return .indigo
-
         case .cyan: return .cyan
         case .teal: return .teal
         case .mint: return .mint
         case .green: return .green
-
         case .yellow: return .yellow
         case .orange: return .orange
         case .red: return .red
-
         case .pink: return .pink
         case .hotPink: return Color(red: 1.00, green: 0.18, blue: 0.55)
-
         case .brown: return .brown
-
         case .graphite: return Color(white: 0.65)
         case .midnight: return Color(red: 0.05, green: 0.08, blue: 0.14)
         case .black: return .black
         case .white: return .white
-
-        case .rainbow:
-            // Placeholder: you’ll need to handle this specially in UI
-            // (gradient / animated hue shift, not a single Color)
-            return .purple
+        case .rainbow: return .purple
         }
     }
 
     var symbol: String {
         switch self {
-
-        // Purples
         case .purple: return "sparkles"
         case .lavender: return "wand.and.stars"
-
-        // Blues
         case .blue: return "drop.fill"
         case .indigo: return "wave.3.right"
-
-        // Cool tones
         case .cyan: return "bubbles.and.sparkles"
         case .teal: return "wind"
         case .mint: return "leaf.circle.fill"
-
-        // Nature / warm
         case .green: return "leaf.fill"
         case .yellow: return "sun.max.fill"
         case .orange: return "sun.haze.fill"
         case .red: return "flame.fill"
-
-        // Pinks
         case .pink: return "heart.fill"
         case .hotPink: return "heart.circle.fill"
-
-        // Neutrals
         case .brown: return "cup.and.saucer.fill"
-
         case .graphite: return "circle.lefthalf.filled"
         case .midnight: return "moon.stars.fill"
         case .black: return "circle.fill"
         case .white: return "circle"
-
-        // Special
         case .rainbow: return "paintpalette.fill"
         }
     }
 }
+
 // MARK: - ContentView Root
 
 struct ContentView: View {
-    @State private var tab: CatHubTab = .browse
+    @State private var tab: CatHubTab = .randomizer
 
     @AppStorage("CatHub.tint") private var tintRaw: String = CatHubTintChoice.purple.rawValue
     private var tint: CatHubTintChoice { CatHubTintChoice(rawValue: tintRaw) ?? .purple }
 
-    // single source of truth for favorites
     @StateObject private var favorites = FavoritesStore()
-    // single source of truth for browse/global data
-    @StateObject private var browseVM = BrowseViewModel()
+    @StateObject private var randomizerVM = RandomizerViewModel()
 
-    // rainbow hue cycling
     @State private var rainbowHue: Double = 0
 
     private var accentColor: Color {
@@ -192,15 +159,10 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             switch tab {
-            case .browse:
-                BrowseView(accent: accentColor, favorites: favorites, vm: browseVM)
-
-            case .more:
-                MoreCatsView(accent: accentColor, favorites: favorites, vm: browseVM)
-
+            case .randomizer:
+                RandomizerView(accent: accentColor, favorites: favorites, vm: randomizerVM)
             case .saved:
                 SavedView(accent: accentColor, favorites: favorites)
-
             case .settings:
                 SettingsView(tintRaw: $tintRaw)
             }
@@ -211,24 +173,19 @@ struct ContentView: View {
                 .padding(.bottom, 10)
         }
         .preferredColorScheme(nil)
-        .onAppear {
-            startRainbowTimerIfNeeded()
-        }
-        .onChange(of: tintRaw) { _, _ in
-            startRainbowTimerIfNeeded()
-        }
+        .onAppear { startRainbowIfNeeded() }
+        .onChange(of: tintRaw) { _, _ in startRainbowIfNeeded() }
     }
 
-    private func startRainbowTimerIfNeeded() {
+    private func startRainbowIfNeeded() {
         guard tint == .rainbow else { return }
-        // Animate hue continuously
         withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
             rainbowHue = 1.0
         }
     }
 }
 
-// MARK: - Bottom Button -> Native Menu
+// MARK: - Bottom Menu
 
 struct BottomNativeMenu: View {
     @Binding var selection: CatHubTab
@@ -237,7 +194,6 @@ struct BottomNativeMenu: View {
     var body: some View {
         HStack {
             Spacer()
-
             Menu {
                 ForEach(CatHubTab.allCases) { tab in
                     Button {
@@ -256,7 +212,6 @@ struct BottomNativeMenu: View {
                     .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
             }
             .menuStyle(.automatic)
-
             Spacer()
         }
     }
@@ -304,208 +259,21 @@ struct GlassPillButton<Content: View>: View {
     }
 }
 
-// MARK: - Browse
+// MARK: - Randomizer
 
-struct BrowseView: View {
+struct RandomizerView: View {
     let accent: Color
     @ObservedObject var favorites: FavoritesStore
-    @ObservedObject var vm: BrowseViewModel
-
-    @State private var showSearch = false
-    @State private var searchText = ""
-    @FocusState private var isSearchFocused: Bool
+    @ObservedObject var vm: RandomizerViewModel
 
     @State private var viewerImages: [CatImage] = []
     @State private var viewerStartIndex: Int = 0
     @State private var showViewer = false
-
-    private enum BrowseScrollAnchor: Hashable {
-        case searchField
-    }
-
-    private var filteredBreeds: [CatBreed] {
-        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if q.isEmpty { return vm.breeds }
-
-        let lower = q.lowercased()
-        return vm.breeds.filter { b in
-            b.name.lowercased().contains(lower) ||
-            (b.origin ?? "").lowercased().contains(lower) ||
-            (b.temperament ?? "").lowercased().contains(lower)
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                ZStack(alignment: .top) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 14) {
-                            header
-
-                            // ✅ Multi-API “More Cats” section (teaser row)
-                            MoreCatsSectionCard(
-                                accent: accent,
-                                images: vm.globalImages,
-                                isLoading: vm.isLoadingGlobal,
-                                onSelect: { imgs, idx in
-                                    viewerImages = imgs
-                                    viewerStartIndex = idx
-                                    showViewer = true
-                                },
-                                onNeedMore: { Task { await vm.loadMoreGlobal(batchSize: 18) } },
-                                onFirstAppear: { Task { await vm.ensureGlobalLoadedOnce() } }
-                            )
-
-                            if showSearch {
-                                searchField
-                                    .id(BrowseScrollAnchor.searchField)
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-
-                            LazyVStack(spacing: 14) {
-                                ForEach(filteredBreeds) { breed in
-                                    BreedSectionCard(
-                                        breed: breed,
-                                        images: vm.imagesByBreed[breed.id] ?? [],
-                                        isLoading: vm.loadingBreeds.contains(breed.id),
-                                        onSelect: { images, idx in
-                                            viewerImages = images
-                                            viewerStartIndex = idx
-                                            showViewer = true
-                                        },
-                                        onNeedMore: {
-                                            Task { await vm.loadMoreImages(for: breed, batchSize: 20) }
-                                        },
-                                        onFirstAppear: {
-                                            Task { await vm.ensureInitialImages(for: breed) }
-                                        }
-                                    )
-                                }
-                            }
-                            .padding(.bottom, 80)
-                        }
-                        .padding(.top, 10)
-                        .padding(.horizontal, 16)
-                    }
-                    .refreshable {
-                        await vm.softRefreshVisible(prefixCount: 14)
-                        await vm.softRefreshGlobal()
-                    }
-
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Button {
-                                revealSearch(using: proxy)
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(accent)
-                                    .frame(width: 46, height: 46)
-                                    .background(.ultraThinMaterial, in: Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.12), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                            .tint(.clear)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                        Spacer()
-                    }
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                await vm.loadOnce()
-                await vm.performLaunchWarmup()
-            }
-            .fullScreenCover(isPresented: $showViewer) {
-                CatViewer(images: viewerImages, startIndex: viewerStartIndex, accent: accent, favorites: favorites)
-            }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("CatHub")
-                .font(.system(size: 44, weight: .bold))
-                .padding(.top, 4)
-
-            Text("Got Cat? We do.")
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("Search breeds, origin, temperament", text: $searchText)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .focused($isSearchFocused)
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                    softHaptic()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .tint(.clear)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.white.opacity(0.10), lineWidth: 1))
-    }
-
-    private func revealSearch(using proxy: ScrollViewProxy) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-            showSearch = true
-        }
-        softHaptic()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo(BrowseScrollAnchor.searchField, anchor: .top)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                isSearchFocused = true
-            }
-        }
-    }
-}
-
-// MARK: - More Cats Tab (Photos-ish Grid)
-
-struct MoreCatsView: View {
-    let accent: Color
-    @ObservedObject var favorites: FavoritesStore
-    @ObservedObject var vm: BrowseViewModel
-
-    @State private var viewerImages: [CatImage] = []
-    @State private var viewerStartIndex: Int = 0
-    @State private var showViewer = false
-
-    // ✅ gate so infinite scroll can’t spam
     @State private var lastLoadTriggerCount: Int = 0
 
-    // Photos “Recents” vibe: tighter spacing than Saved
-    private let spacing: CGFloat = 8
-
+    private let spacing: CGFloat = 2
     private var columns: [GridItem] {
-        // 3-ish columns on iPhone, feels like Photos
         [
-            GridItem(.flexible(), spacing: spacing),
             GridItem(.flexible(), spacing: spacing),
             GridItem(.flexible(), spacing: spacing),
             GridItem(.flexible(), spacing: spacing)
@@ -515,32 +283,30 @@ struct MoreCatsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: spacing) {
-                    Text("More Cats")
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("CatHub")
                         .font(.system(size: 44, weight: .bold))
                         .padding(.top, 8)
 
-                    Text("So.. many... cats.")
+                    Text("Got Cat? We do.")
                         .font(.system(size: 15))
                         .foregroundStyle(.secondary)
 
                     LazyVGrid(columns: columns, spacing: spacing) {
-                        ForEach(Array(vm.globalImages.enumerated()), id: \.element.id) { (idx, img) in
+                        ForEach(Array(vm.images.enumerated()), id: \.element.id) { (idx, img) in
                             CompactGridTile(url: img.url)
-                                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                                 .onTapGesture {
-                                    viewerImages = vm.globalImages
+                                    viewerImages = vm.images
                                     viewerStartIndex = idx
                                     showViewer = true
                                 }
-                                .onAppear {
-                                    maybeLoadMoreIfNeeded(currentIndex: idx)
-                                }
+                                .onAppear { maybeLoadMore(at: idx) }
                         }
 
-                        if vm.isLoadingGlobal {
+                        if vm.isLoading {
                             ForEach(0..<6, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
                                     .fill(.ultraThinMaterial)
                                     .overlay(ProgressView().scaleEffect(0.9))
                                     .aspectRatio(1, contentMode: .fit)
@@ -551,33 +317,23 @@ struct MoreCatsView: View {
                 }
                 .padding(.horizontal, 14)
             }
-            .refreshable {
-                await vm.softRefreshGlobal()
-            }
+            .refreshable { await vm.refresh() }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                // Only needs global feed, but reusing VM is fine.
-                await vm.ensureGlobalLoadedOnce()
-            }
+            .task { await vm.loadOnce() }
             .fullScreenCover(isPresented: $showViewer) {
                 CatViewer(images: viewerImages, startIndex: viewerStartIndex, accent: accent, favorites: favorites)
             }
         }
     }
 
-    private func maybeLoadMoreIfNeeded(currentIndex idx: Int) {
-        guard !vm.isLoadingGlobal else { return }
-        guard !vm.globalImages.isEmpty else { return }
-
-        let triggerIndex = max(vm.globalImages.count - 10, 0)
-        guard idx == triggerIndex else { return }
-
-        // ✅ only once per milestone
-        guard vm.globalImages.count != lastLoadTriggerCount else { return }
-        lastLoadTriggerCount = vm.globalImages.count
-
-        Task { await vm.loadMoreGlobal(batchSize: 24) }
+    private func maybeLoadMore(at idx: Int) {
+        guard !vm.isLoading, !vm.images.isEmpty else { return }
+        let triggerIndex = max(vm.images.count - 10, 0)
+        guard idx >= triggerIndex else { return }
+        guard vm.images.count != lastLoadTriggerCount else { return }
+        lastLoadTriggerCount = vm.images.count
+        Task { await vm.loadMore() }
     }
 }
 
@@ -589,24 +345,22 @@ private struct CompactGridTile: View {
             let side = geo.size.width
 
             ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(.ultraThinMaterial)
 
                 CachedRemoteImage(
                     url: url,
-                    targetPixelSize: CGSize(width: 800, height: 800)
+                    targetPixelSize: CGSize(width: 400, height: 400)
                 ) { phase in
                     switch phase {
                     case .empty:
                         ProgressView()
                             .frame(width: side, height: side)
-
                     case .failure:
                         Image(systemName: "photo")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: side, height: side)
-
                     case .success(let image):
                         image
                             .resizable()
@@ -617,199 +371,9 @@ private struct CompactGridTile: View {
                 }
             }
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
-            )
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .aspectRatio(1, contentMode: .fit)
-    }
-}
-
-// MARK: - Multi-API “More Cats” Section (Browse teaser row)
-
-struct MoreCatsSectionCard: View {
-    let accent: Color
-    let images: [CatImage]
-    let isLoading: Bool
-    let onSelect: (_ images: [CatImage], _ startIndex: Int) -> Void
-    let onNeedMore: () -> Void
-    let onFirstAppear: () -> Void
-
-    // ✅ gate so onAppear spam can’t summon infinite cats
-    @State private var lastLoadTriggerCount: Int = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Randomizer")
-                        .font(.system(size: 22, weight: .bold))
-                    Text("Just Added!")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "camera.aperture")
-                    .foregroundStyle(accent)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    if images.isEmpty && isLoading {
-                        ForEach(0..<6, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 124, height: 92)
-                                .overlay(ProgressView().scaleEffect(0.85))
-                        }
-                    } else {
-                        ForEach(Array(images.enumerated()), id: \.element.id) { (idx, img) in
-                            CatThumb(url: img.url)
-                                .onTapGesture { onSelect(images, idx) }
-                                .accessibilityLabel("Open photo \(idx + 1)")
-                                .onAppear { maybeTriggerLoadMore(currentIndex: idx) }
-                        }
-
-                        if isLoading {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 124, height: 92)
-                                .overlay(ProgressView().scaleEffect(0.85))
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-        }
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-        .onAppear { onFirstAppear() }
-    }
-
-    private func maybeTriggerLoadMore(currentIndex idx: Int) {
-        guard !isLoading else { return }
-        guard !images.isEmpty else { return }
-
-        let triggerIndex = max(images.count - 4, 0)
-        guard idx == triggerIndex else { return }
-
-        // ✅ only once per milestone
-        guard images.count != lastLoadTriggerCount else { return }
-        lastLoadTriggerCount = images.count
-
-        onNeedMore()
-    }
-}
-
-// MARK: - Breed Section Card
-
-struct BreedSectionCard: View {
-    let breed: CatBreed
-    let images: [CatImage]
-    let isLoading: Bool
-    let onSelect: (_ images: [CatImage], _ startIndex: Int) -> Void
-    let onNeedMore: () -> Void
-    let onFirstAppear: () -> Void
-
-    // ✅ gate load-more spam
-    @State private var lastLoadTriggerCount: Int = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(breed.name)
-                        .font(.system(size: 22, weight: .bold))
-                    if let origin = breed.origin, !origin.isEmpty {
-                        Text(origin)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer()
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    if images.isEmpty && isLoading {
-                        ForEach(0..<6, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 124, height: 92)
-                                .overlay(ProgressView().scaleEffect(0.85))
-                        }
-                    } else {
-                        ForEach(Array(images.enumerated()), id: \.element.id) { (idx, img) in
-                            CatThumb(url: img.url)
-                                .onTapGesture { onSelect(images, idx) }
-                                .accessibilityLabel("Open photo \(idx + 1) for \(breed.name)")
-                                .onAppear { maybeTriggerLoadMore(currentIndex: idx) }
-                        }
-
-                        if isLoading {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .frame(width: 124, height: 92)
-                                .overlay(ProgressView().scaleEffect(0.85))
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-        }
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.08), lineWidth: 1))
-        .onAppear { onFirstAppear() }
-    }
-
-    private func maybeTriggerLoadMore(currentIndex idx: Int) {
-        guard !isLoading else { return }
-        guard !images.isEmpty else { return }
-
-        let triggerIndex = max(images.count - 4, 0)
-        guard idx == triggerIndex else { return }
-
-        // ✅ only once per milestone
-        guard images.count != lastLoadTriggerCount else { return }
-        lastLoadTriggerCount = images.count
-
-        onNeedMore()
-    }
-}
-
-struct CatThumb: View {
-    let url: URL?
-
-    var body: some View {
-        CachedRemoteImage(url: url, targetPixelSize: CGSize(width: 320, height: 240)) { phase in
-            switch phase {
-            case .empty:
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 124, height: 92)
-                    .overlay(ProgressView().scaleEffect(0.85))
-            case .success(let image):
-                image
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 124, height: 92)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            case .failure:
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 124, height: 92)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    )
-            }
-        }
     }
 }
 
@@ -825,7 +389,7 @@ struct SavedView: View {
     @State private var viewerStartIndex: Int = 0
     @State private var showViewer = false
 
-    private let spacing: CGFloat = 14
+    private let spacing: CGFloat = 4
     private var columns: [GridItem] {
         [
             GridItem(.flexible(), spacing: spacing),
@@ -848,7 +412,7 @@ struct SavedView: View {
                             LazyVGrid(columns: columns, spacing: spacing) {
                                 ForEach(vm.savedImages, id: \.id) { img in
                                     SavedTile(url: img.url)
-                                        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                        .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                                         .onTapGesture {
                                             viewerImages = vm.savedImages
                                             viewerStartIndex = vm.savedImages.firstIndex(where: { $0.id == img.id }) ?? 0
@@ -865,7 +429,7 @@ struct SavedView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .task(id: favorites.ids) {
-                await vm.loadSaved(from: favorites.ids)
+                await vm.loadSaved(from: favorites)
             }
             .fullScreenCover(isPresented: $showViewer) {
                 CatViewer(images: viewerImages, startIndex: viewerStartIndex, accent: accent, favorites: favorites)
@@ -896,24 +460,22 @@ private struct SavedTile: View {
             let side = geo.size.width
 
             ZStack {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(.ultraThinMaterial)
 
                 CachedRemoteImage(
                     url: url,
-                    targetPixelSize: CGSize(width: 900, height: 900)
+                    targetPixelSize: CGSize(width: 600, height: 600)
                 ) { phase in
                     switch phase {
                     case .empty:
                         ProgressView()
                             .frame(width: side, height: side)
-
                     case .failure:
                         Image(systemName: "photo")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: side, height: side)
-
                     case .success(let image):
                         image
                             .resizable()
@@ -924,11 +486,7 @@ private struct SavedTile: View {
                 }
             }
             .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(.white.opacity(0.08), lineWidth: 1)
-            )
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .aspectRatio(1, contentMode: .fit)
     }
@@ -950,24 +508,18 @@ struct SettingsView: View {
                         }
                     }
                 }
-                
+
                 Section("About CatHub") {
-                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nThis version fixes refresh, improves saved cats, adds rainbow tint, and squashes viewer bugs. Enjoy!")
+                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nJust cats. Randomized. Saveable. Customizable. That's it.")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
                 }
 
                 Section("Version") {
-                    Text("0.0.5B - The Bug Squash Update.")
+                    Text("0.1.0B - The Simplicity Update.")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
-                }
-
-                Section("Known Issues") {
-                    Text("Not all cats have a description — some breeds simply don't have metadata from the API.")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.yellow)
                 }
             }
             .navigationTitle("Settings")
@@ -975,7 +527,7 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Viewer (Image + Flip Info + Zoom)
+// MARK: - Viewer
 
 struct CatViewer: View {
     let images: [CatImage]
@@ -1043,8 +595,9 @@ struct CatViewer: View {
 
                 HStack(spacing: 12) {
                     Button {
-                        if let id = current?.id {
-                            favorites.toggle(id)
+                        if let img = current {
+                            favorites.toggle(img.id, url: img.url)
+                            softHaptic()
                         }
                     } label: {
                         let isFav = (current?.id).map { favorites.isFavorite($0) } ?? false
@@ -1087,14 +640,10 @@ struct CatViewer: View {
             }
         }
         .task {
-            if let current {
-                await loadDetailsIfNeeded(for: current)
-            }
+            if let current { await loadDetailsIfNeeded(for: current) }
         }
         .onChange(of: index) { _, _ in
-            if let current {
-                Task { await loadDetailsIfNeeded(for: current) }
-            }
+            if let current { Task { await loadDetailsIfNeeded(for: current) } }
         }
         .sheet(item: $sharePayload) { payload in
             ShareSheet(activityItems: payload.items)
@@ -1143,7 +692,7 @@ struct CatViewer: View {
     }
 }
 
-// MARK: - Flip Card (Front/Back)
+// MARK: - Flip Card
 
 struct FlippableCatCard: View {
     let image: CatImage
@@ -1193,7 +742,6 @@ struct CatImageCard: View {
                     ProgressView().scaleEffect(1.0)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
             case .failure:
                 ZStack {
                     Color.black.opacity(0.4)
@@ -1202,7 +750,6 @@ struct CatImageCard: View {
                         .foregroundStyle(.white.opacity(0.7))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
             case .success(let image):
                 image
                     .resizable()
@@ -1213,6 +760,8 @@ struct CatImageCard: View {
         .background(Color.clear)
     }
 }
+
+// MARK: - Zoomable Scroll View
 
 #if canImport(UIKit)
 struct ZoomableScrollView<Content: View>: UIViewRepresentable {
@@ -1297,7 +846,6 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
                 scroll.setZoomScale(desired, animated: false)
             }
         }
-
         context.coordinator.centerContent(scroll)
     }
 
@@ -1362,6 +910,26 @@ struct ZoomableScrollView<Content: View>: UIViewRepresentable {
         }
     }
 }
+#elseif canImport(AppKit)
+struct ZoomableScrollView<Content: View>: View {
+    @Binding var zoomScale: CGFloat
+    var content: Content
+
+    init(
+        zoomScale: Binding<CGFloat>,
+        minZoom: CGFloat = 1.0,
+        maxZoom: CGFloat = 4.0,
+        doubleTapZoom: CGFloat = 2.5,
+        @ViewBuilder content: () -> Content
+    ) {
+        self._zoomScale = zoomScale
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+    }
+}
 #endif
 
 // MARK: - Back Card (Info)
@@ -1379,12 +947,10 @@ struct CatInfoBackCard: View {
                     if let origin = image.origin, !origin.isEmpty {
                         Text("Origin: \(origin)")
                     }
-
                     if let temperament = image.temperament, !temperament.isEmpty {
                         Text(temperament)
                             .padding(.top, 2)
                     }
-
                     if image.source != .theCatAPI {
                         Text("Source: \(image.source.displayName)")
                             .padding(.top, 6)
@@ -1497,13 +1063,11 @@ struct CatImage: Identifiable, Codable, Hashable {
         id = try c.decode(String.self, forKey: .id)
         url = try? c.decode(URL.self, forKey: .url)
         breeds = try? c.decode([CatBreed].self, forKey: .breeds)
-
-        // ✅ If JSON doesn't include "source" (TheCatAPI doesn't), default to .theCatAPI
         source = (try? c.decode(CatSource.self, forKey: .source)) ?? .theCatAPI
     }
 }
 
-// MARK: - Networking (TheCatAPI + CATAAS)
+// MARK: - Networking
 
 final class CatAPIClient {
     private let base = URL(string: "https://api.thecatapi.com/v1")!
@@ -1538,49 +1102,9 @@ final class CatAPIClient {
         return data
     }
 
-    // MARK: Breeds
+    // MARK: Global Images
 
-    func fetchBreeds() async throws -> [CatBreed] {
-        let url = base.appendingPathComponent("breeds")
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 25
-        applyTheCatAPIKey(&req)
-
-        let data = try await validatedData(for: req)
-        return try JSONDecoder().decode([CatBreed].self, from: data)
-    }
-
-    // MARK: Breed Images (pagination)
-
-    func fetchImages(
-        breedId: String,
-        limit: Int = 20,
-        page: Int = 0,
-        order: String = "DESC"
-    ) async throws -> [CatImage] {
-        var comps = URLComponents(url: base.appendingPathComponent("images/search"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = [
-            URLQueryItem(name: "breed_ids", value: breedId),
-            URLQueryItem(name: "limit", value: "\(limit)"),
-            URLQueryItem(name: "page", value: "\(page)"),
-            URLQueryItem(name: "order", value: order),
-            URLQueryItem(name: "size", value: "med"),
-            URLQueryItem(name: "include_breeds", value: "1")
-        ]
-
-        var req = URLRequest(url: comps.url!)
-        req.timeoutInterval = 25
-        applyTheCatAPIKey(&req)
-
-        let data = try await validatedData(for: req)
-        let decoded = try JSONDecoder().decode([CatImage].self, from: data)
-
-        return decoded.map { CatImage(id: $0.id, url: $0.url, breeds: $0.breeds, source: .theCatAPI) }
-    }
-
-    // MARK: Global Images (no breed filter)
-
-    func fetchGlobalImages(limit: Int = 20, page: Int = 0, order: String = "DESC") async throws -> [CatImage] {
+    func fetchGlobalImages(limit: Int = 20, page: Int = 0, order: String = "RAND") async throws -> [CatImage] {
         var comps = URLComponents(url: base.appendingPathComponent("images/search"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [
             URLQueryItem(name: "limit", value: "\(limit)"),
@@ -1599,7 +1123,7 @@ final class CatAPIClient {
         return decoded.map { CatImage(id: $0.id, url: $0.url, breeds: $0.breeds, source: .theCatAPI) }
     }
 
-    // MARK: Image Details (TheCatAPI)
+    // MARK: Image Details
 
     func fetchImageById(_ id: String) async throws -> CatImage? {
         var comps = URLComponents(url: base.appendingPathComponent("images/\(id)"), resolvingAgainstBaseURL: false)!
@@ -1634,7 +1158,7 @@ final class CatAPIClient {
         }
     }
 
-    // MARK: CATAAS (random cats)
+    // MARK: CATAAS
 
     struct CataasRandomResponse: Codable {
         let id: String
@@ -1676,183 +1200,50 @@ final class CatAPIClient {
     }
 }
 
-// MARK: - Browse VM
+// MARK: - Randomizer VM
 
 @MainActor
-final class BrowseViewModel: ObservableObject {
-    @Published var breeds: [CatBreed] = []
-    @Published var imagesByBreed: [String: [CatImage]] = [:]
-    @Published var loadingBreeds: Set<String> = []
-
-    // ✅ multi-source global feed
-    @Published var globalImages: [CatImage] = []
-    @Published var isLoadingGlobal: Bool = false
+final class RandomizerViewModel: ObservableObject {
+    @Published var images: [CatImage] = []
+    @Published var isLoading = false
 
     private let api = CatAPIClient()
-    private var didLoad = false
-    private var loadedBreedIds: Set<String> = []
-    private var isLoadingMore: Set<String> = []
-    private var didPerformLaunchWarmup = false
-
-    // ✅ pagination state per breed
-    private var nextPageByBreed: [String: Int] = [:]
-    private let maxImagesKeptPerBreed = 70
-
-    // ✅ global pagination state
-    private var globalPage: Int = 0
-    private let maxGlobalKept = 180
-    private var didLoadGlobalOnce = false
+    private let maxKept = 200
+    private var didLoadOnce = false
 
     func loadOnce() async {
-        guard !didLoad else { return }
-        didLoad = true
-        do {
-            breeds = try await api.fetchBreeds()
-        } catch {
-            print("Browse load error:", error)
-        }
+        guard !didLoadOnce else { return }
+        didLoadOnce = true
+        await loadMore()
     }
 
-    func performLaunchWarmup() async {
-        guard !didPerformLaunchWarmup else { return }
-        didPerformLaunchWarmup = true
-        guard !breeds.isEmpty else { return }
-
-        let initialBreeds = Array(breeds.prefix(18))
-        for breed in initialBreeds {
-            await ensureInitialImages(for: breed)
-        }
-
-        await ensureGlobalLoadedOnce()
-
-        let delays: [UInt64] = [500_000_000, 1_000_000_000]
-        for delay in delays {
-            try? await Task.sleep(nanoseconds: delay)
-            for breed in initialBreeds {
-                if (imagesByBreed[breed.id]?.isEmpty ?? true) {
-                    await loadMoreImages(for: breed, batchSize: 20)
-                } else {
-                    await refreshImages(for: breed)
-                }
-            }
-        }
+    func refresh() async {
+        await loadMore()
     }
 
-    func ensureInitialImages(for breed: CatBreed) async {
-        guard !loadedBreedIds.contains(breed.id) else { return }
-        loadedBreedIds.insert(breed.id)
-
-        nextPageByBreed[breed.id] = 0
-        await loadMoreImages(for: breed, batchSize: 20)
-    }
-
-    func refreshImages(for breed: CatBreed) async {
-        loadingBreeds.insert(breed.id)
-        defer { loadingBreeds.remove(breed.id) }
-
-        do {
-            nextPageByBreed[breed.id] = 0
-
-            let imgs = try await api.fetchImages(
-                breedId: breed.id,
-                limit: 20,
-                page: 0,
-                order: "DESC"
-            )
-
-            imagesByBreed[breed.id] = imgs.uniquedById()
-        } catch {
-            print("Refresh error:", error)
-        }
-    }
-
-    func loadMoreImages(for breed: CatBreed, batchSize: Int = 20) async {
-        guard !isLoadingMore.contains(breed.id) else { return }
-        isLoadingMore.insert(breed.id)
-        loadingBreeds.insert(breed.id)
-        defer {
-            isLoadingMore.remove(breed.id)
-            loadingBreeds.remove(breed.id)
-        }
-
-        let page = nextPageByBreed[breed.id, default: 0]
-
-        do {
-            let newOnes = try await api.fetchImages(
-                breedId: breed.id,
-                limit: batchSize,
-                page: page,
-                order: "DESC"
-            )
-
-            if !newOnes.isEmpty {
-                nextPageByBreed[breed.id] = page + 1
-            }
-
-            var existing = imagesByBreed[breed.id] ?? []
-            existing.append(contentsOf: newOnes)
-            existing = existing.uniquedById()
-
-            if existing.count > maxImagesKeptPerBreed {
-                existing = Array(existing.suffix(maxImagesKeptPerBreed))
-            }
-
-            imagesByBreed[breed.id] = existing
-        } catch {
-            print("Load more error:", error)
-        }
-    }
-
-    func softRefreshVisible(prefixCount: Int) async {
-        let slice = Array(breeds.prefix(prefixCount))
-        for b in slice {
-            if (imagesByBreed[b.id]?.isEmpty ?? true) == false {
-                await refreshImages(for: b)
-            }
-        }
-    }
-
-    // MARK: Global (multi-source)
-
-    func ensureGlobalLoadedOnce() async {
-        guard !didLoadGlobalOnce else { return }
-        didLoadGlobalOnce = true
-        await loadMoreGlobal(batchSize: 24)
-    }
-
-    func softRefreshGlobal() async {
-        globalPage = 0
-        // Don't clear globalImages — avoids blank flash while reloading
-        await loadMoreGlobal(batchSize: 24)
-    }
-
-    func loadMoreGlobal(batchSize: Int = 24) async {
-        guard !isLoadingGlobal else { return }
-        isLoadingGlobal = true
-        defer { isLoadingGlobal = false }
+    func loadMore(batchSize: Int = 24) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
 
         do {
             let catApiCount = max(batchSize - 6, 12)
             let cataasCount = max(batchSize - catApiCount, 4)
 
-            async let a = api.fetchGlobalImages(limit: catApiCount, page: globalPage, order: "DESC")
+            async let a = api.fetchGlobalImages(limit: catApiCount, page: 0, order: "RAND")
             async let b = api.fetchCataasRandomBatch(cataasCount)
 
             var combined = try await (a + b)
             combined = combined.uniquedById()
 
-            if !combined.isEmpty {
-                globalPage += 1
-            }
+            images.append(contentsOf: combined)
+            images = images.uniquedById()
 
-            globalImages.append(contentsOf: combined)
-            globalImages = globalImages.uniquedById()
-
-            if globalImages.count > maxGlobalKept {
-                globalImages = Array(globalImages.suffix(maxGlobalKept))
+            if images.count > maxKept {
+                images = Array(images.suffix(maxKept))
             }
         } catch {
-            print("Global load error:", error)
+            print("Load error:", error)
         }
     }
 }
@@ -1862,23 +1253,46 @@ final class BrowseViewModel: ObservableObject {
 @MainActor
 final class FavoritesStore: ObservableObject {
     @Published private(set) var ids: [String] = []
-    private let key = "CatHub.favorites"
+    private var urlMap: [String: String] = [:]
+    private let idsKey = "CatHub.favorites"
+    private let urlsKey = "CatHub.favoriteURLs"
 
     init() {
-        if let data = UserDefaults.standard.array(forKey: key) as? [String] {
+        if let data = UserDefaults.standard.array(forKey: idsKey) as? [String] {
             ids = data
+        }
+        if let data = UserDefaults.standard.dictionary(forKey: urlsKey) as? [String: String] {
+            urlMap = data
         }
     }
 
     func isFavorite(_ id: String) -> Bool { ids.contains(id) }
 
-    func toggle(_ id: String) {
+    func toggle(_ id: String, url: URL? = nil) {
         if let idx = ids.firstIndex(of: id) {
             ids.remove(at: idx)
+            urlMap.removeValue(forKey: id)
         } else {
-            if !ids.contains(id) { ids.append(id) }
+            ids.append(id)
+            if let url { urlMap[id] = url.absoluteString }
         }
-        UserDefaults.standard.set(ids, forKey: key)
+        save()
+        softHaptic()
+    }
+
+    func url(for id: String) -> URL? {
+        guard let str = urlMap[id] else { return nil }
+        return URL(string: str)
+    }
+
+    func cacheURL(_ url: URL, for id: String) {
+        urlMap[id] = url.absoluteString
+        UserDefaults.standard.set(urlMap, forKey: urlsKey)
+    }
+
+    private func save() {
+        UserDefaults.standard.set(ids, forKey: idsKey)
+        UserDefaults.standard.set(urlMap, forKey: urlsKey)
     }
 }
 
@@ -1889,35 +1303,48 @@ final class SavedViewModel: ObservableObject {
     @Published var savedImages: [CatImage] = []
     private let api = CatAPIClient()
 
-    func loadSaved(from ids: [String]) async {
+    func loadSaved(from favorites: FavoritesStore) async {
+        let ids = favorites.ids
         if ids.isEmpty {
             savedImages = []
             return
         }
 
-        let theCatAPIIds = ids.filter { !$0.hasPrefix("cataas_") }
+        var resolved: [CatImage] = []
+        var needsLookup: [String] = []
 
-        do {
-            let hydrated = try await api.fetchImagesByIdsConcurrent(theCatAPIIds)
-
-            let stubs: [CatImage] = ids
-                .filter { $0.hasPrefix("cataas_") }
-                .map { id in
-                    let cataasId = String(id.dropFirst("cataas_".count))
-                    let url = URL(string: "https://cataas.com/cat/\(cataasId)")
-                    return CatImage(id: id, url: url, breeds: nil, source: .cataas)
-                }
-
-            // Preserve original favorites order
-            let lookup = Dictionary(uniqueKeysWithValues: (hydrated + stubs).map { ($0.id, $0) })
-            savedImages = ids.compactMap { lookup[$0] }
-        } catch {
-            print("Saved load error:", error)
+        for id in ids {
+            if id.hasPrefix("cataas_") {
+                let cataasId = String(id.dropFirst("cataas_".count))
+                let url = URL(string: "https://cataas.com/cat/\(cataasId)")
+                resolved.append(CatImage(id: id, url: url, breeds: nil, source: .cataas))
+            } else if let url = favorites.url(for: id) {
+                resolved.append(CatImage(id: id, url: url, breeds: nil, source: .theCatAPI))
+            } else {
+                needsLookup.append(id)
+            }
         }
+
+        if !needsLookup.isEmpty {
+            do {
+                let hydrated = try await api.fetchImagesByIdsConcurrent(needsLookup)
+                for img in hydrated {
+                    if let url = img.url {
+                        favorites.cacheURL(url, for: img.id)
+                    }
+                }
+                resolved.append(contentsOf: hydrated)
+            } catch {
+                print("Saved load error:", error)
+            }
+        }
+
+        let lookup = Dictionary(uniqueKeysWithValues: resolved.map { ($0.id, $0) })
+        savedImages = ids.compactMap { lookup[$0] }
     }
 }
 
-// MARK: - Share Sheet (cross-platform)
+// MARK: - Share Sheet
 
 #if canImport(UIKit)
 struct ShareSheet: UIViewControllerRepresentable {
@@ -1947,7 +1374,7 @@ struct SharePayload: Identifiable {
     let items: [Any]
 }
 
-// MARK: - Cached Image System (cross-platform, off-main)
+// MARK: - Cached Image System
 
 enum CachedImagePhase {
     case empty
@@ -2091,19 +1518,23 @@ final class CachedImageLoader: ObservableObject {
     private var currentURL: URL?
 
     @MainActor func load(url: URL?, targetPixelSize: CGSize) {
-        if currentURL == url, case .success = phase {
-            return
-        }
-
+        if currentURL == url, case .success = phase { return }
         task?.cancel()
-        Task { @MainActor in phase = .empty }
 
         guard let url else {
-            Task { @MainActor in phase = .failure }
+            phase = .failure
             return
         }
 
         currentURL = url
+
+        // Check disk/memory cache synchronously — cached images appear instantly
+        if let cached = cache.image(for: url) {
+            phase = .success(Self.toSwiftUIImage(cached))
+            return
+        }
+
+        phase = .empty
         let key = ImageCacheKey(url: url, targetPixelSize: targetPixelSize)
 
         task = Task.detached(priority: .utility) { [cache, pipeline] in
