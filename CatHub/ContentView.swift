@@ -174,31 +174,57 @@ struct ContentView: View {
     @AppStorage("CatHub.tint") private var tintRaw: String = CatHubTintChoice.purple.rawValue
     private var tint: CatHubTintChoice { CatHubTintChoice(rawValue: tintRaw) ?? .purple }
 
-    // ✅ single source of truth for favorites
+    // single source of truth for favorites
     @StateObject private var favorites = FavoritesStore()
+    // single source of truth for browse/global data
+    @StateObject private var browseVM = BrowseViewModel()
+
+    // rainbow hue cycling
+    @State private var rainbowHue: Double = 0
+
+    private var accentColor: Color {
+        if tint == .rainbow {
+            return Color(hue: rainbowHue, saturation: 0.7, brightness: 0.95)
+        }
+        return tint.color
+    }
 
     var body: some View {
         ZStack {
             switch tab {
             case .browse:
-                BrowseView(accent: tint.color, favorites: favorites)
+                BrowseView(accent: accentColor, favorites: favorites, vm: browseVM)
 
             case .more:
-                MoreCatsView(accent: tint.color, favorites: favorites)
+                MoreCatsView(accent: accentColor, favorites: favorites, vm: browseVM)
 
             case .saved:
-                SavedView(accent: tint.color, favorites: favorites)
+                SavedView(accent: accentColor, favorites: favorites)
 
             case .settings:
                 SettingsView(tintRaw: $tintRaw)
             }
         }
         .safeAreaInset(edge: .bottom) {
-            BottomNativeMenu(selection: $tab, accent: tint.color)
+            BottomNativeMenu(selection: $tab, accent: accentColor)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
         }
         .preferredColorScheme(nil)
+        .onAppear {
+            startRainbowTimerIfNeeded()
+        }
+        .onChange(of: tintRaw) { _, _ in
+            startRainbowTimerIfNeeded()
+        }
+    }
+
+    private func startRainbowTimerIfNeeded() {
+        guard tint == .rainbow else { return }
+        // Animate hue continuously
+        withAnimation(.linear(duration: 4).repeatForever(autoreverses: false)) {
+            rainbowHue = 1.0
+        }
     }
 }
 
@@ -283,8 +309,7 @@ struct GlassPillButton<Content: View>: View {
 struct BrowseView: View {
     let accent: Color
     @ObservedObject var favorites: FavoritesStore
-
-    @StateObject private var vm = BrowseViewModel()
+    @ObservedObject var vm: BrowseViewModel
 
     @State private var showSearch = false
     @State private var searchText = ""
@@ -465,8 +490,7 @@ struct BrowseView: View {
 struct MoreCatsView: View {
     let accent: Color
     @ObservedObject var favorites: FavoritesStore
-
-    @StateObject private var vm = BrowseViewModel()
+    @ObservedObject var vm: BrowseViewModel
 
     @State private var viewerImages: [CatImage] = []
     @State private var viewerStartIndex: Int = 0
@@ -928,20 +952,20 @@ struct SettingsView: View {
                 }
                 
                 Section("About CatHub") {
-                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nThis version of the beta adds a 'More Cats' tab, new colors, and enhanced performance. Enjoy!")
+                    Text("CatHub is a tiny, cozy app designed to bring immediate joy.\n\nThis version fixes refresh, improves saved cats, adds rainbow tint, and squashes viewer bugs. Enjoy!")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
                 }
-                
+
                 Section("Version") {
-                    Text("0.0.4B - Colorful CATastrophies.")
+                    Text("0.0.5B - The Bug Squash Update.")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                 }
-                
+
                 Section("Known Issues") {
-                    Text("Refreshing the 'More Cats' tab may sometimes not update the images as expected. \n\nSometimes when tapping on a cat image, the image viewer will still display black. \n\nThe Accent 'Rainbow' displays as Purple. \n\nNot all cats have a description.")
+                    Text("Not all cats have a description — some breeds simply don't have metadata from the API.")
                         .font(.system(size: 14))
                         .foregroundStyle(.yellow)
                 }
@@ -1067,7 +1091,7 @@ struct CatViewer: View {
                 await loadDetailsIfNeeded(for: current)
             }
         }
-        .onChange(of: index) { _ in
+        .onChange(of: index) { _, _ in
             if let current {
                 Task { await loadDetailsIfNeeded(for: current) }
             }
@@ -1145,8 +1169,8 @@ struct FlippableCatCard: View {
                 .accessibilityHidden(!isFlipped)
         }
         .ignoresSafeArea()
-        .onChange(of: isFlipped) { flipped in
-            if flipped { zoomScale = 1.0 }
+        .onChange(of: isFlipped) { _, newValue in
+            if newValue { zoomScale = 1.0 }
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: isFlipped)
     }
@@ -1625,7 +1649,14 @@ final class CatAPIClient {
 
         let data = try await validatedData(for: req)
         let decoded = try JSONDecoder().decode(CataasRandomResponse.self, from: data)
-        guard let imageURL = URL(string: decoded.url) else { return nil }
+
+        let imageURL: URL?
+        if decoded.url.hasPrefix("http") {
+            imageURL = URL(string: decoded.url)
+        } else {
+            imageURL = URL(string: "https://cataas.com\(decoded.url)")
+        }
+        guard let imageURL else { return nil }
 
         return CatImage(id: "cataas_\(decoded.id)", url: imageURL, breeds: nil, source: .cataas)
     }
@@ -1791,7 +1822,7 @@ final class BrowseViewModel: ObservableObject {
 
     func softRefreshGlobal() async {
         globalPage = 0
-        globalImages = []
+        // Don't clear globalImages — avoids blank flash while reloading
         await loadMoreGlobal(batchSize: 24)
     }
 
@@ -1828,6 +1859,7 @@ final class BrowseViewModel: ObservableObject {
 
 // MARK: - Favorites Store
 
+@MainActor
 final class FavoritesStore: ObservableObject {
     @Published private(set) var ids: [String] = []
     private let key = "CatHub.favorites"
@@ -1870,9 +1902,15 @@ final class SavedViewModel: ObservableObject {
 
             let stubs: [CatImage] = ids
                 .filter { $0.hasPrefix("cataas_") }
-                .map { CatImage(id: $0, url: nil, breeds: nil, source: .cataas) }
+                .map { id in
+                    let cataasId = String(id.dropFirst("cataas_".count))
+                    let url = URL(string: "https://cataas.com/cat/\(cataasId)")
+                    return CatImage(id: id, url: url, breeds: nil, source: .cataas)
+                }
 
-            savedImages = (hydrated + stubs)
+            // Preserve original favorites order
+            let lookup = Dictionary(uniqueKeysWithValues: (hydrated + stubs).map { ($0.id, $0) })
+            savedImages = ids.compactMap { lookup[$0] }
         } catch {
             print("Saved load error:", error)
         }
@@ -2154,7 +2192,7 @@ struct CachedRemoteImage<Content: View>: View {
     var body: some View {
         content(loader.phase)
             .onAppear { loader.load(url: url, targetPixelSize: targetPixelSize) }
-            .onChange(of: url) { loader.load(url: url, targetPixelSize: targetPixelSize) }
+            .onChange(of: url) { _, newURL in loader.load(url: newURL, targetPixelSize: targetPixelSize) }
             .onDisappear { loader.cancel() }
     }
 }
