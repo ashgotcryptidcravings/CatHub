@@ -1622,8 +1622,9 @@ struct CachedRemoteImage<Content: View>: View {
 
     var body: some View {
         content(loader.phase)
-            .onAppear { loader.load(url: url, targetPixelSize: targetPixelSize) }
-            .onChange(of: url) { _, newURL in loader.load(url: newURL, targetPixelSize: targetPixelSize) }
+            .task(id: url) {
+                loader.load(url: url, targetPixelSize: targetPixelSize)
+            }
             .onDisappear { loader.cancel() }
     }
 }
